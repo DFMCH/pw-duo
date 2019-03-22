@@ -1,0 +1,9 @@
+# Ignore everything
+*
+
+# except for source code
+!.gitignore
+!add-pw-duo.sh
+!Makefile
+!pw-duo.c
+!README.md
