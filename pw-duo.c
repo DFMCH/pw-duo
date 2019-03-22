@@ -13,7 +13,7 @@
 #include "../openldap-2.4.42+dfsg/servers/slapd/sasl.c"
 int slap_sasl_bind( Operation *op, SlapReply *rs );
 
-#define MODULE_NAME     "slapd-duo"
+#define MODULE_NAME     "pw-duo"
 #define TAG             "chk_duo()"
 #define LOGIN_DUO       "/usr/local/duo/sbin/login_duo"
 #define LOGIN_DUO_FLAGS " -n -f "
