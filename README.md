@@ -4,7 +4,7 @@ pw-duo is an OpenLDAP password module implementing Duo Push with SASL passthroug
 # Overview
 The module needs a configured OpenLDAP source branch to be built against. Once built, the module is copied to the OpenLDAP server (eg: under `/usr/lib/ldap`) and added to the slapd instance with an LDIF file. Once in place, a user's `userPassword` attribute is configured with a special "prefix" to tell `slapd` to run the pw-duo module for authentication instead of the built-in OpenLDAP methods. The pw-duo module will first attempt authentiation (depending on configuration) via SASL passthrough, or by comparing SSHA password hashes. If the previous auth method is succesful, the Duo push is attempted. If either method fails, authentication fails. By initiating the Duo push at the LDAP layer, any application requesting authentication via LDAP will initiate a Duo push without the need to modify any application source code.
 
-This is an early work in progress. My experience with C is limited to projects much smaller than the OpenLDAP code base. That said, there are things that could be improved on. For instance, it would make much more sense to call the 1FA functions already defined in OpenLDAP core and only handle the Duo 2FA from the module. When I tried this however, it created some warnings about redefined macros. It's most likely I included the wrong header file. It wasn't obvious where the issue was so finally I opted to include the SASL and SSHA auth bits I needed directly into the pw-duo module itself. This resulted in a cleaner build and a good time to mention OpenLDAP is a registered trademark of the OpenLDAP Foundation and [where to find the OpenLDAP License](http://www.openldap.org/software/release/license.html)
+This is an early work in progress. My experience with C is limited to projects much smaller than the OpenLDAP code base. That said, there are things that could be improved on. For instance, it would make much more sense to call the 1FA functions already defined in OpenLDAP core and only handle the Duo 2FA from the module. When I tried this however, it created some warnings about redefined macros. It's most likely that I included the wrong header file. It wasn't obvious where the issue was so finally I opted to include the SASL and SSHA auth bits I needed directly into the pw-duo module itself. This resulted in a cleaner build and a good time to mention OpenLDAP is a registered trademark of the OpenLDAP Foundation and [where to find the OpenLDAP License](http://www.openldap.org/software/release/license.html)
 
 A few problems I wanted to address with pw-duo:
 
@@ -26,7 +26,7 @@ The userPassword attribute (in your LDAP DIT) for any given user being configure
 {DUO+SSHA}userLogin@SSHA_HASH  (Example: {DUO+SSHA}user101@2jmj7l5rSw0yVb/vlWAYkK/YBwk=)
 ```
 
-DUO+SASL defines a user provisioned for SASL passthrough auth to another server, while DUO+SSHA would define a user authentication with an SSHA password hash included after the ampersand. The username/login is included in both schemes. Initially, I tried to retrieve this information during runtime was unsuccesful. I wondered if maybe the other modules (radius, SASL) in the contrib directory included the login name for the same reason.  This does have the added benefit of allowing the Duo username to be different than the login username so that may have some benefits in mixed environments. TODO: Found out later that Duo allows for 'user@domain.net' so there may be multiple ampersands in the userPassword attribute. The module doesn't currently handle this but should be an easy fix (using strrchar() instead)
+DUO+SASL defines a user provisioned for SASL passthrough auth to another server, while DUO+SSHA would define a user authentication with an SSHA password hash included after the ampersand. The username/login is included in both schemes. Initially, I tried to retrieve this information during runtime but was unsuccesful. I wondered if maybe the other modules (radius, SASL) in the contrib directory included the login name for the same reason.  This does have the added benefit of allowing the Duo username to be different than the login username so that may have some benefits in mixed environments. TODO: Found out later that Duo allows for 'user@domain.net' so there may be multiple ampersands in the userPassword attribute. The module doesn't currently handle this but should be an easy fix (using strrchar() instead)
 
 # Building
 Steps:
@@ -54,14 +54,14 @@ $ ./configure --build=x86_64-linux-gnu --prefix=/usr --includedir=${prefix}/incl
 --enable-dynamic --disable-slapd --enable-passwd
 ```
 
-After configuring OpenLDAP, run make depend to build. This will not install the slapd build, but will create the neccesary header files which are needed to build pw-duo
+After configuring OpenLDAP, run `make depend` to build. This will not install the slapd build, but will create the neccesary header files which are needed to build pw-duo
 
 Next, pull in the Duo libduo C library and configure/build the library:
 ```
 $ git clone https://github.com/duosecurity/libduo.git
 ```
 
-The OpenLDAP module seems to only work built with shared libraries (maybe due to `--enable-dynamic` above?). The libduo library is built statically. I opted to build libduo as a shared library. This requires editing the libduo Makefile and adding `-fPIC` to the `CFLAGS` make variable or simply exporting CFLAGS prior to running `./configure`.
+The OpenLDAP module seems to only work built with shared libraries (maybe due to `--enable-dynamic` above?). The libduo library is built statically. I opted to build libduo as a shared library. This requires editing the libduo Makefile and adding `-fPIC` to the `CFLAGS` make variable or simply exporting `CFLAGS` prior to running `./configure`.
 
 Proceed with make and then build libduo.so from the `.o` files:
 
@@ -127,7 +127,7 @@ export DUO_API_HOST=$(sudo egrep ^host /etc/duo/login_duo.conf  | awk '{print $3
 export DUO_IKEY=$(sudo egrep ^ikey  /etc/duo/login_duo.conf  | awk '{print $3};')
 export DUO_SKEY=$(sudo egrep ^skey  /etc/duo/login_duo.conf  | awk '{print $3};')
 
-# slapd -u openldap -d128 -h "ldap:/// ldaps:/// ldapi:///
+# sudo slapd -u openldap -d128 -h "ldap:/// ldaps:/// ldapi:///
 ```
 
 I'm not exactly sure how best to remove an openldap module after it has been added. The question has been [brought up](https://www.openldap.org/lists/openldap-technical/201308/msg00162.html). It's probably best to make a [slapcat backup](https://help.ubuntu.com/lts/serverguide/openldap-server.html.en) before adding the module. If you want to remove the module, restore from the slapcat dump.
