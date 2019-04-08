@@ -1,9 +1,4 @@
-# $OpenLDAP$
-# CPPFLAGS+=-Iopenldap-2.4.31/include -Ifreeradius-client-1.1.6/include/ -fPIC -Wall
-# 2016-01-05 tmb -i can't compile radexample unless freeradius-1.1.6 source is included
-#
-# 2016-01-05 - tmb - with 14.04, we can use ubuntu libfreeradius-client-dev package and no need
-# to download source. Can't compile radexampel however because it needs config.h from source
+# This file fashioned from openldap-2.4.42+dfsg/contrib/slapd-modules/passwd/Makefile
 #
 # 2019-03-22 - tmb384 (tmb384) - need the header files from a clean build of slapd so...
 # 1) apt-get source slapd
@@ -14,47 +9,49 @@
      --enable-modules --enable-rewrite --enable-rlookups --enable-slapi --enable-slp --enable-wrappers --enable-backends=mod --disable-ndb \
      --enable-overlays=mod --with-subdir=ldap --with-cyrus-sasl --with-threads --with-gssapi --with-tls=gnutls --with-odbc=unixodbc  \
      --enable-memberof  --enable-ppolicy --enable-accesslog --enable-dynamic --disable-slapd  --enable-passwd
-#
-#    make depend
-#
-CPPFLAGS+=-I../openldap-2.4.42+dfsg/include -shared -fPIC -dPIC -Wall
 
-CC=gcc
-LIBTOOL=libtool
-PLUGIN=pw-duo
-LIBS=
+# LDAP_SRC abs path is /usr/src/duo/ldap-duo/16.04/openldap-2.4.42+dfsg/
+LDAP_SRC = ../../..
+LDAP_BUILD = $(LDAP_SRC)
+LDAP_INC = -I$(LDAP_BUILD)/include -I$(LDAP_SRC)/include -I$(LDAP_SRC)/servers/slapd -I${LDAP_SRC}/contrib/slapd-modules/passwd/libduo
+LDAP_LIB = $(LDAP_BUILD)/libraries/libldap_r/libldap_r.la $(LDAP_BUILD)/libraries/liblber/liblber.la
+LIBTOOL = $(LDAP_BUILD)/libtool
+CC = gcc
+OPT = -g -O2 -Wall -fPIC
+DEFS =
+INCS = $(LDAP_INC)
+LIBS = $(LDAP_LIB)
 
-all: $(PLUGIN).la
+PROGRAMS = pw-duo.la pw-duo-test
+LTVER = 0:0:0
 
-$(PLUGIN).lo: $(PLUGIN).c
-	$(LIBTOOL) --mode=compile $(CC) $(CPPFLAGS) -c $?
+prefix=/usr/local
+exec_prefix=$(prefix)
+ldap_subdir=/openldap
 
-$(PLUGIN).la: $(PLUGIN).lo
-	$(LIBTOOL) --mode=link $(CC) -version-info 0:0:0 -rpath $(PREFIX)/lib -module -o $@ $? $(LIBS)
-	#tar cvfzh ../pw-duo.tgz ../slapd-duo
-	rm .libs/pw-duo.la
-	cp pw-duo.la .libs
+libdir=$(exec_prefix)/lib
+libexecdir=$(exec_prefix)/libexec
+moduledir = $(libexecdir)$(ldap_subdir)
 
+.SUFFIXES: .c .o .lo
+
+.c.lo:
+        $(LIBTOOL) --mode=compile $(CC) $(OPT) $(DEFS) $(INCS) -c $<
+
+all: $(PROGRAMS)
+
+pw-duo.la:      pw-duo.lo
+        $(LIBTOOL) --mode=link $(CC) $(OPT) -version-info $(LTVER) \
+        -rpath $(moduledir) -module -o $@ $? -L./libduo/ -lduo -lssl -lcrypto
+
+pw-duo-test: pw-duo.ck
+        gcc pw-duo-test.c -o pw-duo-test -L./libduo/ -I./libduo -lduo -lssl -lcrypto
 
 clean:
-	rm -f $(PLUGIN).lo $(PLUGIN).la
-	rm -f $(PLUGIN)
-	mv $(PLUGIN).tgz /tmp/
+        rm -rf *.o *.lo *.la .libs
 
-install: $(PLUGIN).la
-	mkdir -p $(PREFIX)/lib/
-	$(LIBTOOL) --mode=install cp $(PLUGIN).la $(PREFIX)/lib/
-	$(LIBTOOL) --finish $(PREFIX)/lib/
-
-# install to my test VMs
-test_install:
-	sudo rsync -av .libs/ root@ldap1.test:/usr/lib/ldap/
-	sudo rsync -av .libs/ root@ldap2.test:/usr/lib/ldap/
-	sudo rsync -av /etc/duo root@ldap1.test:/etc/
-	sudo rsync -av /etc/duo root@ldap2.test:/etc/
-	sudo rsync -av /usr/local/duo root@ldap1.test:/usr/local/
-	sudo rsync -av /usr/local/duo root@ldap2.test:/usr/local/
-	sudo rsync -av add-pw-duo.sh root@ldap1.test:/tmp/
-	sudo rsync -av add-pw-duo.sh root@ldap2.test:/tmp/
-	echo  -e '\e[1;33;40mssh to test and run /tmp/pw-modify.sh\e[0;0m'
-
+install: $(PROGRAMS)
+        mkdir -p $(DESTDIR)$(moduledir)
+        for p in $(PROGRAMS) ; do \
+                $(LIBTOOL) --mode=install cp $$p $(DESTDIR)$(moduledir) ; \
+        done
