@@ -234,11 +234,6 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    char *duo_username = NULL;               /* points to duo user name from password hash */
    int len_user, len_hash;
 
-   fprintf(stderr, "%s: starting chk_duo_ssha1 text is %s\n", TAG, *text);
-   fprintf(stderr, "%s: starting chk_duo_ssha1 sc is %s\n", TAG, sc->bv_val);
-   fprintf(stderr, "%s: starting chk_duo_ssha1 passwd is %s\n", TAG, passwd->bv_val);
-   fprintf(stderr, "%s: starting chk_duo_ssha1 cred is %s\n", TAG, cred->bv_val);
-
 	for ( i = 0; i < cred->bv_len; i++ )
    {
 		if ( cred->bv_val[ i ] == '\0' )
