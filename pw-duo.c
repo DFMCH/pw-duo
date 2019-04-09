@@ -60,6 +60,8 @@ struct DUO_CONF {
 #define AUTH_MODE_PHONE    102
 #define AUTH_MODE_PCODE    103
 
+#define PASS_HASH_SEPARATOR '@'  /* used in LDAP userPassword attribute for SSHA auth */
+
 
 /* from openldap-2.4.42+dfsg/servers/slapd/sasl.c */
 #ifdef HAVE_CYRUS_SASL
@@ -232,7 +234,7 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    int auth_result      = LUTIL_PASSWD_ERR;
    char *p_hash = NULL;                     /* points to actual password hash after username@ */
    char *duo_username = NULL;               /* points to duo user name from password hash */
-   int len_user, len_hash;
+   int len_user;
 
 	for ( i = 0; i < cred->bv_len; i++ )
    {
@@ -266,11 +268,15 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
 
    fprintf(stderr, "%s: looking for token in pass hash\n", TAG);
    /* DUO+SSHA userPassword must be provisioned as: {DUO+SSHA}username@ssha_hash
-      tried getting sAMAccountName using attr_find() but just can't find enough
-      info about how the function call works to make it work. For now, the username
-      must prefix the ssha_hash similar to the way the RADIUS and SASL plugins work */
+    * tried getting sAMAccountName using attr_find() but just can't find enough
+    * info about how the function call works to make it work. For now, the username
+    * must prefix the ssha_hash similar to the way the RADIUS and SASL plugins work
+    *
+    * Duo allows for users to be provisioned as user@somewhere.org which may result in
+    * multiple '@' characters in userPassword so use strrchr() to find last occurrence
+    */
 
-   char *p_sep = strchr(passwd->bv_val, '@');
+   char *p_sep = strrchr(passwd->bv_val, PASS_HASH_SEPARATOR);
    if (!p_sep)
    {
       fprintf(stderr, "%s: separator not found or not valid DUO+SSHA password hash\n", TAG);
@@ -282,13 +288,6 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
 
    /* username length is current p_sep pointer - beginning of passwd */
    len_user = p_sep - passwd->bv_val;
-   len_hash = passwd->bv_len - len_user - 1;
-
-      //int sn_len = strlen (p) + 1;
-      //char *tmp = ber_memalloc (sn_len);
-      //if (!tmp)
-      //   return LUTIL_PASSWD_ERR;
-      //AC_MEMCPY(tmp, p, sn_len);
 
    /* check ssha password */
    lutil_SHA1_CTX SHA1context;
@@ -310,6 +309,7 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    }
 
    rc = lutil_b64_pton(p_hash , orig_pass, decode_len);
+
    /* safety check - must have a salt */
    if (rc <= (int)(sizeof(SHA1digest)))
    {
