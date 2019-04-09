@@ -16,6 +16,7 @@ This module addresses the three points above however there are some caveats:
 
 - the inherent delay incorporated into the authentication process may not work for all applications.  I've tested it so far with `sudo` and a handful of in-house web apps but not a great sample size so far
 - some applications have a mixed user configuration - some in LDAP, some defined locally. An application level implementation would work best here
+- `slapd` allows about 10 seconds to accept the Duo push before [`deferring operation`](http://www.openldap.org/lists/openldap-software/200704/msg00094.html) occurrs which terminates authentication. I don't know yet if this is adjustable.
 
 The pw-duo module must be compiled against the source code headers of the version of slapd (OpenLDAP) you intend to be running the module on. There are a few headers which are generated during configure or compile time which need to be included in the module (portable.h is one).
 
@@ -121,13 +122,13 @@ $ ldconfig -v
 
 Your Duo keys are generated in your Duo admin portal and will need to be on the LDAP server. The simplest convention I found is to rsync `/etc/duo` from a system setup for something like `duo_unix` (using the `login_duo` application) to the LDAP server and then pull those into the environment.
 
-TODO: Need to expose the DUO keys to the slapd environment somehow. This is what I currently use for testing:
+TODO: Need to expose the DUO keys to the slapd environment somehow. This is what I currently use for testing (run as root):
 ```sh
-export DUO_API_HOST=$(sudo egrep ^host /etc/duo/login_duo.conf  | awk '{print $3};')
-export DUO_IKEY=$(sudo egrep ^ikey  /etc/duo/login_duo.conf  | awk '{print $3};')
-export DUO_SKEY=$(sudo egrep ^skey  /etc/duo/login_duo.conf  | awk '{print $3};')
+# export DUO_API_HOST=$(sudo egrep ^host /etc/duo/login_duo.conf  | awk '{print $3};')
+# export DUO_IKEY=$(sudo egrep ^ikey  /etc/duo/login_duo.conf  | awk '{print $3};')
+# export DUO_SKEY=$(sudo egrep ^skey  /etc/duo/login_duo.conf  | awk '{print $3};')
 
-# sudo slapd -u openldap -d128 -h "ldap:/// ldaps:/// ldapi:///
+# slapd -u openldap -d64 -h "ldap:/// ldaps:/// ldapi:///"
 ```
 
 I'm not exactly sure how best to remove an openldap module after it has been added. The question has been [brought up](https://www.openldap.org/lists/openldap-technical/201308/msg00162.html). It's probably best to make a [slapcat backup](https://help.ubuntu.com/lts/serverguide/openldap-server.html.en) before adding the module. If you want to remove the module, restore from the slapcat dump.
