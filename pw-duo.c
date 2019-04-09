@@ -264,7 +264,7 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
 		return LUTIL_PASSWD_ERR;	/* passwd must behave like a string */
 	}
 
-   fprintf(stderr, "%s: looking for token in pass hash %s\n", TAG, passwd->bv_val);
+   fprintf(stderr, "%s: looking for token in pass hash\n", TAG);
    /* DUO+SSHA userPassword must be provisioned as: {DUO+SSHA}username@ssha_hash
       tried getting sAMAccountName using attr_find() but just can't find enough
       info about how the function call works to make it work. For now, the username
@@ -283,7 +283,6 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    /* username length is current p_sep pointer - beginning of passwd */
    len_user = p_sep - passwd->bv_val;
    len_hash = passwd->bv_len - len_user - 1;
-   fprintf(stderr, "%s: user length is %d and hash length is %d\n", TAG, len_user, len_hash);
 
       //int sn_len = strlen (p) + 1;
       //char *tmp = ber_memalloc (sn_len);
