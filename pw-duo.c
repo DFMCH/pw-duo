@@ -98,7 +98,7 @@ typedef struct sasl_ctx {
 /* check Duo for an auth. return LUTIL_PASSWD_ERR or LUTIL_PASSWD_OK */
 static int duo_auth_user (char *duo_username, int my_auth_mode)
 {
-   int auth_result = LUTIL_PASSWD_ERR;
+   int i = 0, auth_result = LUTIL_PASSWD_ERR;
    duo_t *duo;
    struct duo_auth *auth;
    struct duo_factor *dfact;
@@ -155,9 +155,6 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
 
    // fprintf(stderr, "%s: prompt text is %s\n", TAG, auth->ok.preauth.prompt.text);
 
-   int i = 0;
-   char buf[128];
-
    while (factor == NULL)
    {
       for (i = 0; i < auth->ok.preauth.prompt.factors_cnt; i++)
@@ -197,7 +194,7 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
    }
 
    auth = duo_auth_free(auth);
-   fprintf(stderr, "%s: calling push with buf %s\n", TAG, buf);
+   fprintf(stderr, "%s: calling push for user %s\n", TAG, duo_username);
 
    /* not sure what the other options are for 3rd arg here. Going with what's in libduo/test-duologin.c See https://github.com/duosecurity/libduo/blob/master/duo.c */
    if ( (auth = duo_auth_auth (duo, duo_username, "prompt", "1.2.3.4", (void *) factor)) == NULL)
@@ -207,7 +204,7 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
       return (LUTIL_PASSWD_ERR);
    }
 
-   fprintf(stderr, "%s: push completed. Testing success.\n", TAG);
+   fprintf(stderr, "%s: push completed. Testing result.\n", TAG);
 
    /* if Duo auth succeeded ... */
    if (strcmp(auth->ok.auth.result, "allow") == 0)
@@ -358,13 +355,9 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    }
    else
    {
-      fprintf(stderr, "%s: total_len is too big for command buffer. Skipping duo auth\n", TAG);
+      fprintf(stderr, "%s: hash_auth_result returned an error. Skipping duo auth\n", TAG);
    }
 
-   fprintf(stderr, "%s: starting chk_duo_ssha1 text is %s\n", TAG, *text);
-   fprintf(stderr, "%s: starting chk_duo_ssha1 sc is %s\n", TAG, sc->bv_val);
-   fprintf(stderr, "%s: starting chk_duo_ssha1 passwd is %s\n", TAG, passwd->bv_val);
-   fprintf(stderr, "%s: starting chk_duo_ssha1 cred is %s\n", TAG, cred->bv_val);
 	return auth_result;
 }
 
@@ -436,7 +429,7 @@ static int chk_duo_sasl (const struct berval *sc, const struct berval *passwd, c
    }
    else
    {
-      fprintf(stderr, "%s: total_len is too big for command buffer. Skipping duo auth\n", TAG);
+      fprintf(stderr, "%s: SASL auth result returned and error. Skipping duo auth\n", TAG);
    }
 
 	ldap_pvt_thread_mutex_unlock( &duo_sasl_mutex );
