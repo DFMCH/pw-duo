@@ -34,7 +34,7 @@ pw-duo.la:	pw-duo.lo
 	$(LIBTOOL) --mode=link $(CC) $(OPT) -version-info $(LTVER) \
 	-rpath $(moduledir) -module -o $@ $? -L./libduo/ -lduo -lssl -lcrypto
 
-pw-duo-test: pw-duo.ck
+pw-duo-test: pw-duo.c
 	gcc pw-duo-test.c -o pw-duo-test -L./libduo/ -I./libduo -lduo -lssl -lcrypto
 
 clean:
