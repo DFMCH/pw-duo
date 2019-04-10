@@ -26,7 +26,8 @@ static const struct berval scheme_duo_sasl = BER_BVC("{DUO+SASL}");
 /* ..and some SSHA as well */
 static const struct berval scheme_duo_ssha1 = BER_BVC("{DUO+SSHA}");
 
-static ldap_pvt_thread_mutex_t duo_sasl_mutex;
+/* not sure this is needed. Some password modules use it, others don't */
+static ldap_pvt_thread_mutex_t pw_duo_mutex;
 
 /* holds duo config/keys */
 struct DUO_CONF {
@@ -42,6 +43,8 @@ struct DUO_CONF {
 #define LABEL_PREFIX_PUSH     "push"
 #define LABEL_PREFIX_SMS      "sms"
 #define LABEL_PREFIX_PHONE    "phone"
+#define DUO_AUTH_FACTOR       "prompt"
+#define DUO_AUTH_IPADDR       "1.2.3.4"   /* if we can get the IP of the host requesting auth it would go here */
 
 #define MODULE_NAME           "pw-duo"
 #define TAG                   "chk_duo()"
@@ -63,7 +66,7 @@ struct DUO_CONF {
 #define PASS_HASH_SEPARATOR '@'  /* used in LDAP userPassword attribute for SSHA auth */
 
 
-/* from openldap-2.4.42+dfsg/servers/slapd/sasl.c */
+/* from openldap-2.4.42+dfsg/servers/slapd/sasl.c  below vvvv */
 #ifdef HAVE_CYRUS_SASL
 # ifdef HAVE_SASL_SASL_H
 #  include <sasl/sasl.h>
@@ -84,7 +87,6 @@ typedef sasl_callback_ft slap_sasl_cb_ft;
 typedef int (*slap_sasl_cb_ft)();
 #endif
 
-//static sasl_security_properties_t sasl_secprops;
 #elif defined( SLAP_BUILTIN_SASL )
 /*
  * built-in SASL implementation
@@ -96,6 +98,35 @@ typedef struct sasl_ctx {
 } SASL_CTX;
 
 #endif
+/* from openldap-2.4.42+dfsg/servers/slapd/sasl.c  above ^^^^ */
+
+
+/* sanity check passed credentials for NULL bytes in string, or missing NULL at end */
+static int check_cred (char *cred, ber_len_t cred_len)
+{
+   int ret_val = LUTIL_PASSWD_OK;
+   ber_len_t i = 0; /* lber.h defines bv_len */
+
+   /* NULL character in cred */
+   for (i = 0; i < cred_len; i++)
+   {
+      if (cred[i] == 0x0)
+      {
+         fprintf(stderr, "%s: NUL found in cred\n", TAG);
+         return LUTIL_PASSWD_ERR;
+      }
+   }
+
+   /* cred should be null terminated like a string, but not the first byte (NULL cred) */
+   if ((cred[i] != 0x0) && (i > 0))
+   {
+      fprintf(stderr, "%s: NUL terminator missing in cred\n", TAG);
+      return LUTIL_PASSWD_ERR;
+   }
+
+return (ret_val);
+}
+
 
 /* check Duo for an auth. return LUTIL_PASSWD_ERR or LUTIL_PASSWD_OK */
 static int duo_auth_user (char *duo_username, int my_auth_mode)
@@ -199,7 +230,7 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
    fprintf(stderr, "%s: calling push for user %s\n", TAG, duo_username);
 
    /* not sure what the other options are for 3rd arg here. Going with what's in libduo/test-duologin.c See https://github.com/duosecurity/libduo/blob/master/duo.c */
-   if ( (auth = duo_auth_auth (duo, duo_username, "prompt", "1.2.3.4", (void *) factor)) == NULL)
+   if ( (auth = duo_auth_auth (duo, duo_username, DUO_AUTH_FACTOR, DUO_AUTH_IPADDR, (void *) factor)) == NULL)
    {
       fprintf(stderr, "%s: DUO push failed with error %s.\n", TAG, duo_get_error(duo));
       free (factor);
@@ -228,43 +259,21 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
 /* check Duo push and SSHA password */
 static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, const struct berval *cred,	const char **text )
 {
-	unsigned int i;
-
 	int hash_auth_result = LUTIL_PASSWD_ERR; /* default to password error */
    int auth_result      = LUTIL_PASSWD_ERR;
    char *p_hash = NULL;                     /* points to actual password hash after username@ */
    char *duo_username = NULL;               /* points to duo user name from password hash */
    int len_user;
 
-	for ( i = 0; i < cred->bv_len; i++ )
+   if (check_cred (cred->bv_val, cred->bv_len) == LUTIL_PASSWD_ERR)
    {
-		if ( cred->bv_val[ i ] == '\0' )
-      {
-         fprintf(stderr, "%s: NUL character in cred\n", TAG);
-			return LUTIL_PASSWD_ERR;	/* NUL character in cred */
-		}
-	}
+      return LUTIL_PASSWD_ERR;
+   }
 
-   if ( cred->bv_val[ i ] != '\0' )
+   if (check_cred (passwd->bv_val, passwd->bv_len) == LUTIL_PASSWD_ERR)
    {
-      fprintf(stderr, "%s: no NUL found at end\n", TAG);
-		return LUTIL_PASSWD_ERR;	/* cred must behave like a string */
-	}
-
-	for ( i = 0; i < passwd->bv_len; i++ )
-   {
-		if ( passwd->bv_val[ i ] == '\0' )
-      {
-         fprintf(stderr, "%s: NUL char found in passwd\n", TAG);
-			return LUTIL_PASSWD_ERR;	/* NUL character in password */
-		}
-	}
-
-	if ( passwd->bv_val[ i ] != '\0' )
-   {
-      fprintf(stderr, "%s: no NUL found at end of passwd\n", TAG);
-		return LUTIL_PASSWD_ERR;	/* passwd must behave like a string */
-	}
+      return LUTIL_PASSWD_ERR;
+   }
 
    fprintf(stderr, "%s: looking for token in pass hash\n", TAG);
    /* DUO+SSHA userPassword must be provisioned as: {DUO+SSHA}username@ssha_hash
@@ -276,6 +285,8 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
     * multiple '@' characters in userPassword so use strrchr() to find last occurrence
     */
 
+	ldap_pvt_thread_mutex_lock( &pw_duo_mutex );
+
    char *p_sep = strrchr(passwd->bv_val, PASS_HASH_SEPARATOR);
    if (!p_sep)
    {
@@ -283,7 +294,14 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
       return LUTIL_PASSWD_ERR;
    }
 
-   /* next character after sep is pass hash */
+   /* next character after sep is pass hash, if separator is not at end of string */
+   if ( p_sep + 1 >= (passwd->bv_val + passwd->bv_len) )
+   {
+      fprintf(stderr, "%s: no hash found after separator\n", TAG);
+      return LUTIL_PASSWD_ERR;
+   }
+
+   /* move to next character after separator which is the beginning of the password hash */
    p_hash = p_sep + 1;
 
    /* username length is current p_sep pointer - beginning of passwd */
@@ -303,12 +321,12 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    }
 
    orig_pass = (unsigned char *) ber_memalloc(decode_len + 1);
-   if( orig_pass == NULL )
+   if (orig_pass == NULL )
    {
       return LUTIL_PASSWD_ERR;
    }
 
-   rc = lutil_b64_pton(p_hash , orig_pass, decode_len);
+   rc = lutil_b64_pton(p_hash ,orig_pass, decode_len);
 
    /* safety check - must have a salt */
    if (rc <= (int)(sizeof(SHA1digest)))
@@ -352,50 +370,35 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
       fprintf(stderr, "%s: hash_auth_result returned an error. Skipping duo auth\n", TAG);
    }
 
+	ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
 	return auth_result;
 }
+
 
 
 
 /* check Duo push + SASL passthrough */
 static int chk_duo_sasl (const struct berval *sc, const struct berval *passwd, const struct berval *cred,	const char **text )
 {
-	unsigned int i;
 	int sasl_auth_result = LUTIL_PASSWD_ERR; /* default to password error */
    int auth_result      = LUTIL_PASSWD_ERR;
    void *ctx, *sconn = NULL;                // for sasl
 
    fprintf(stderr, "%s: starting chk_duo_sasl\n", TAG);
 
-	for ( i = 0; i < cred->bv_len; i++ )
+   if (check_cred (cred->bv_val, cred->bv_len) == LUTIL_PASSWD_ERR)
    {
-		if ( cred->bv_val[ i ] == '\0' )
-      {
-			return LUTIL_PASSWD_ERR;	/* NUL character in cred */
-		}
-	}
+      return LUTIL_PASSWD_ERR;
+   }
 
-   if ( cred->bv_val[ i ] != '\0' )
+   if (check_cred (passwd->bv_val, passwd->bv_len) == LUTIL_PASSWD_ERR)
    {
-		return LUTIL_PASSWD_ERR;	/* cred must behave like a string */
-	}
-
-	for ( i = 0; i < passwd->bv_len; i++ )
-   {
-		if ( passwd->bv_val[ i ] == '\0' )
-      {
-			return LUTIL_PASSWD_ERR;	/* NUL character in password */
-		}
-	}
-
-	if ( passwd->bv_val[ i ] != '\0' )
-   {
-		return LUTIL_PASSWD_ERR;	/* passwd must behave like a string */
-	}
+      return LUTIL_PASSWD_ERR;
+   }
 
    fprintf(stderr, "%s: checking user %s\n", TAG, passwd->bv_val);
 
-	ldap_pvt_thread_mutex_lock( &duo_sasl_mutex );
+	ldap_pvt_thread_mutex_lock( &pw_duo_mutex );
 
    /* check sasl password first */
    ctx = ldap_pvt_thread_pool_context();
@@ -426,7 +429,7 @@ static int chk_duo_sasl (const struct berval *sc, const struct berval *passwd, c
       fprintf(stderr, "%s: SASL auth result returned and error. Skipping duo auth\n", TAG);
    }
 
-	ldap_pvt_thread_mutex_unlock( &duo_sasl_mutex );
+	ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
 
 	return auth_result;
 }
@@ -435,7 +438,7 @@ static int chk_duo_sasl (const struct berval *sc, const struct berval *passwd, c
 int term_module()
 {
    fprintf(stderr, "%s: term_module - %s\n", TAG, MODULE_NAME);
-	return ldap_pvt_thread_mutex_destroy( &duo_sasl_mutex );
+	return ldap_pvt_thread_mutex_destroy( &pw_duo_mutex );
 }
 
 int init_module( int argc, char *argv[] )
@@ -448,7 +451,7 @@ int init_module( int argc, char *argv[] )
    //duo_conf = read_duo_keys(DUO_CFG);
 
    // might not need this? radius pw module uses it
-	ldap_pvt_thread_mutex_init( &duo_sasl_mutex );
+	ldap_pvt_thread_mutex_init( &pw_duo_mutex );
 
    rc = lutil_passwd_add( (struct berval *)&scheme_duo_ssha1, chk_duo_ssha1, NULL );
    if ( !rc )
