@@ -1,3 +1,13 @@
+#/*
+# * Redistribution and use in source and binary forms, with or without
+# * modification, are permitted only as authorized by the OpenLDAP
+# * Public License.
+# *
+# * A copy of this license is available in the file LICENSE in the
+# * top-level directory of the distribution or, alternatively, at
+# * <http://www.OpenLDAP.org/license.html>.
+# */
+#
 # LDAP_SRC abs path is /usr/src/duo/ldap-duo/16.04/openldap-2.4.42+dfsg/
 # this file fashioned from openldap-2.4.42+dfsg/contrib/slapd-modules/passwd/Makefile
 #
