@@ -14,7 +14,7 @@
 #include <string.h>
 #include <wordexp.h>
 #include "duo.h"
-#include "pw-duo/pw-duo.h"
+#include "pw-duo.h"
 
 #define LUTIL_PASSWD_ERR -1
 #define LUTIL_PASSWD_OK   0

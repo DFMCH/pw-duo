@@ -21,7 +21,7 @@
 #include "slap.h"      /* for struct SlapReply */
 #include "lutil_sha1.h"
 #include "duo.h"
-#include "pw-duo/pw-duo.h"
+#include "pw-duo.h"
 
 #include <sasl/sasl.h>
 #include <sasl/saslplug.h>
