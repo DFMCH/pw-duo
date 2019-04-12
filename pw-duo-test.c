@@ -4,31 +4,80 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wordexp.h>
-
 #include "duo.h"
+#include "pw-duo/pw-duo.h"
 
-#define LUTIL_PASSWD_ERR   -1
-#define LUTIL_PASSWD_OK    -1
-#define DUO_TIMEOUT        20
-#define TAG                "duo-test"
+#define LUTIL_PASSWD_ERR -1
+#define LUTIL_PASSWD_OK   0
 
-/* available authentication options, returned from duo, start with this text and end with a 1 (for now I guess) */
-#define LABEL_PREFIX_PUSH        "push"
-#define LABEL_PREFIX_SMS         "sms"
-#define LABEL_PREFIX_PHONE       "phone"
 
-/* just use AUTH_MODE_PUSH for now. maybe later this could be specified in the username/password input
- * TODO: could parse the option from username or password.
- * it's a non-interactive auth, so which mode to use?
- * eg: 302233,username or 302303,Pa55w0rd
- * eg: sms,username or sms,Pa55w0rd
- * eg: phone,username or phone,Pa55w0rd
- */
-#define AUTH_MODE_PUSH     100
-#define AUTH_MODE_SMS      101
-#define AUTH_MODE_PHONE    102
-#define AUTH_MODE_PCODE    103
+static int read_duo_keys (DuoConf *dc)
+{
+   int nread = 0;
+   FILE *fin;
+   char *ptr;
+   char buf[255];
+   int len = 0;
+   fprintf(stderr, "%s: reading duo keys from %s\n", TAG, DUO_LOGIN_CFG);
 
+   if ((fin = fopen (DUO_LOGIN_CFG, "r")) == NULL)
+   {
+      return -1;
+   }
+
+   while (!feof(fin))
+   {
+      if (fgets (buf, sizeof(buf), fin))
+      {
+         /* skip lines starting with semicolons */
+         if (strstr (buf, ";"))
+         {
+            char *tmp = buf;
+            while (*(++tmp) == ' ');
+            if (*(tmp) == ';')
+            {
+               printf ("found comment with leading whitespace\n");
+               continue;
+            }
+         }
+
+         /* if newline exists, replace with NULL */
+         char *nl = strstr (buf, "\n");
+         if (nl)
+            *(nl) = 0x0;
+
+         char *ptr = strstr (buf, "=");
+         if (ptr)
+         {
+            while (*(++ptr) == ' ');
+            len = buf + strlen (buf) - ptr;
+
+            if (strstr (buf, "ikey ") || strstr (buf, "ikey="))
+            {
+               printf (" ikey is |%s| len is %d\n", ptr, len);
+               dc->ikey = malloc (len + 1);
+               if (dc->ikey) snprintf (dc->ikey, len, "%s", ptr);
+            }
+            else if (strstr (buf, "host ") || strstr (buf, "host="))
+            {
+               printf (" host is |%s| len is %d\n", ptr, len);
+               dc->host = malloc (len + 1);
+               if (dc->host) snprintf (dc->host, len, "%s", ptr);
+            }
+            else if (strstr (buf, "skey ") || strstr (buf, "skey="))
+            {
+               printf (" skey is |%s| len is %d\n", ptr, len);
+               dc->skey = malloc (len + 1);
+               if (dc->skey) snprintf (dc->skey, len, "%s", ptr);
+            }
+
+         }/* if ptr */
+
+      }/* fgets */
+   }
+
+return nread;
+}
 
 int duo_auth_user (char *duo_username, int my_auth_mode)
 {
@@ -161,10 +210,29 @@ int duo_auth_user (char *duo_username, int my_auth_mode)
 
 int main(int argc, char *argv[])
 {
+   DuoConf *dc;
+
+   dc = malloc (sizeof (DuoConf));
+   if (!dc)
+      return 0;
+
+   int cfg_result = read_duo_keys (dc);
+
+   fprintf(stderr, "%s: read config result %d\n", TAG, cfg_result);
+
    if (argc == 2)
    {
       duo_auth_user(argv[1], AUTH_MODE_PUSH);
    }
    else
       fprintf(stderr, "%s: need a username to DUO auth.\n", TAG);
+
+   printf ("host key is %s\n", dc->host);
+   printf ("ikey is %s\n", dc->ikey);
+   printf ("skey is %s\n", dc->skey);
+
+   if (dc->ikey) free (dc->ikey);
+   if (dc->skey) free (dc->skey);
+   if (dc->host) free (dc->host);
+   if (dc) free (dc);
 }
