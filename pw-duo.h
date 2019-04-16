@@ -25,6 +25,12 @@
 #define DUO_LOGIN_CFG         "/etc/duo/login_duo.conf"  /* use login_duo for DUO keys */
 #define DUO_TIMEOUT           20
 
+/* key=value text from login_duo.conf config file */
+#define DUO_CFG_IKEY          "ikey"
+#define DUO_CFG_SKEY          "skey"
+#define DUO_CFG_API_HOST      "host"
+#define DUO_CFG_TOTAL_KEYS    3
+
 /* just use AUTH_MODE_PUSH for now. maybe later this could be specified in the username/password input
  * TODO: could parse the option from username or password.
  * it's a non-interactive auth, so which mode to use?
@@ -44,7 +50,7 @@
 typedef struct duo_conf {
    char *ikey;
    char *skey;
-   char *host;
+   char *api_host;
 } DuoConf;
 
 
