@@ -6,5 +6,6 @@
 !add-pw-duo.sh
 !Makefile
 !pw-duo.c
+!pw-duo.h
 !pw-duo-test.c
 !README.md
