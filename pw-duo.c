@@ -100,21 +100,80 @@ static int check_cred (char *cred, ber_len_t cred_len)
 return (ret_val);
 }
 
+/* read ikey, skey and host keys from DUO_LOGIN_CFG modifying passed struct members */
+int read_duo_keys (DuoConf *dc)
+{
+   int nread = 0;
+   FILE *fin;
+   char *ptr, *eos, *nl;
+   char buf[255];
+   int len = 0;
+   fprintf(stderr, "%s: reading duo keys from %s\n", TAG, DUO_LOGIN_CFG);
+
+   if ((fin = fopen (DUO_LOGIN_CFG, "r")) == NULL)
+   {
+      return -1;
+   }
+
+   while (!feof(fin))
+   {
+      if (fgets (buf, sizeof(buf), fin))
+      {
+         /* if newline exists, replace with NULL */
+         nl = strstr (buf, "\n");
+         if (nl) { *(nl) = 0x0; }
+
+         /* if '=' found, trim out the key value and allocate/save keys values*/
+         ptr = strstr (buf, "=");
+         if (ptr)
+         {
+            while (*(++ptr) == ' ');
+            eos = ptr;
+            while ( (*(eos++) != ' ') && (*(eos++) != 0x0) );
+
+            len = eos - ptr;
+
+            if (strstr (buf, DUO_CFG_IKEY))
+            {
+               if ( (dc->ikey = ber_memalloc (len + 1)) == NULL)
+                  return -1;
+               snprintf (dc->ikey, len, "%s", ptr);
+               nread++;
+            }
+            else if (strstr (buf, DUO_CFG_API_HOST))
+            {
+               if ( (dc->api_host = ber_memalloc (len + 1)) == NULL)
+                  return -1;
+               snprintf (dc->api_host, len, "%s", ptr);
+               nread++;
+            }
+            else if (strstr (buf, DUO_CFG_SKEY))
+            {
+               if ( (dc->skey = ber_memalloc (len + 1)) == NULL)
+                  return -1;
+               snprintf (dc->skey, len, "%s", ptr);
+               nread++;
+            }
+         }/* if ptr */
+      }/* fgets */
+   }
+
+return nread;
+}
+
 
 /* check Duo for an auth. return LUTIL_PASSWD_ERR or LUTIL_PASSWD_OK */
-static int duo_auth_user (char *duo_username, int my_auth_mode)
+static int duo_auth_user (char *duo_username, int my_auth_mode, DuoConf *dc)
 {
    int i = 0, auth_result = LUTIL_PASSWD_ERR;
    duo_t *duo;
    struct duo_auth *auth;
    struct duo_factor *dfact;
-   char *api_host, *ikey, *skey, *factor;
+   char *factor;
 
    fprintf(stderr, "%s: DUO push auth for user %s\n", TAG, duo_username);
 
-   if ( (api_host = getenv("DUO_API_HOST")) == NULL ||
-        (ikey = getenv("DUO_IKEY")) == NULL ||
-        (skey = getenv("DUO_SKEY")) == NULL )
+   if ( dc->api_host == NULL || dc->ikey == NULL || dc->skey == NULL )
    {
       fprintf(stderr, "%s: DUO keys not found in environment\n", TAG);
       return (LUTIL_PASSWD_ERR);
@@ -122,7 +181,7 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
 
    fprintf(stderr, "%s: env OK \n", TAG);
 
-   if ( (duo = duo_init (api_host, ikey, skey, "duo-check", NULL, NULL)) == NULL)
+   if ( (duo = duo_init (dc->api_host, dc->ikey, dc->skey, "duo-check", NULL, NULL)) == NULL)
    {
       fprintf(stderr, "%s: DUO init failed\n", TAG);
       return (LUTIL_PASSWD_ERR);
@@ -147,7 +206,7 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
 
    fprintf(stderr, "%s: preauth OK \n", TAG);
 
-   /* could be any one of 'allow', 'deny', 'enroll' or 'auth'. Only process 'auth' for now */
+   /* could be any one of 'allow', 'deny', 'enroll' or 'auth'. Only process 'auth' for now  */
    if (strcmp (auth->ok.preauth.result, "auth") != 0)
    {
       fprintf(stderr, "%s: DUO did not return an auth condition (%s). Exiting.\n", TAG, auth->ok.preauth.result);
@@ -156,7 +215,7 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
 
    fprintf(stderr, "%s: result of preauth is auth \n", TAG);
 
-   /* ...push by default according to prompt text*/
+   /* ...push by default according to prompt text */
    factor = NULL;
 
    // fprintf(stderr, "%s: prompt text is %s\n", TAG, auth->ok.preauth.prompt.text);
@@ -169,13 +228,6 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
          fprintf(stderr, "%s: duo_fact prompt option %s has %s label\n", TAG, dfact->option, dfact->label);
       }
 
-      /* find the push label and set factor to it.
-       * current options could presumably change.
-       * currently they are:
-       * 1 push1
-       * 2 phone1
-       * 3 sms1
-       */
       for (i = 0; i < auth->ok.preauth.prompt.factors_cnt; i++)
       {
          dfact = &auth->ok.preauth.prompt.factors[i];
@@ -187,9 +239,7 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
             factor = strdup(dfact->label);
             break;
          }
-         /*
-          * TODO: add other auth method checks here?
-          */
+         /* TODO: add other auth method checks here? */
          else
          {
             fprintf(stderr, "%s: using default option\n", TAG);
@@ -200,9 +250,9 @@ static int duo_auth_user (char *duo_username, int my_auth_mode)
    }
 
    auth = duo_auth_free(auth);
-   fprintf(stderr, "%s: calling push for user %s\n", TAG, duo_username);
+   fprintf(stderr, "%s: calling push\n", TAG);
 
-   /* not sure what the other options are for 3rd arg here. Going with what's in libduo/test-duologin.c See https://github.com/duosecurity/libduo/blob/master/duo.c */
+   // not sure what the other options are for 3rd arg here. Going with what's in libduo/test-duologin.c See https://github.com/duosecurity/libduo/blob/master/duo.c 
    if ( (auth = duo_auth_auth (duo, duo_username, DUO_AUTH_FACTOR, DUO_AUTH_IPADDR, (void *) factor)) == NULL)
    {
       fprintf(stderr, "%s: DUO push failed with error %s.\n", TAG, duo_get_error(duo));
@@ -236,7 +286,7 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    int auth_result      = LUTIL_PASSWD_ERR;
    char *p_hash = NULL;                     /* points to actual password hash after username@ */
    char *duo_username = NULL;               /* points to duo user name from password hash */
-   int len_user;
+   int len_user; DuoConf *dc;
 
    if (check_cred (cred->bv_val, cred->bv_len) == LUTIL_PASSWD_ERR)
    {
@@ -264,6 +314,7 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    if (!p_sep)
    {
       fprintf(stderr, "%s: separator not found or not valid DUO+SSHA password hash\n", TAG);
+      ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
       return LUTIL_PASSWD_ERR;
    }
 
@@ -271,6 +322,7 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    if ( p_sep + 1 >= (passwd->bv_val + passwd->bv_len) )
    {
       fprintf(stderr, "%s: no hash found after separator\n", TAG);
+      ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
       return LUTIL_PASSWD_ERR;
    }
 
@@ -290,12 +342,14 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    /* salt exists? */
    if (decode_len <= sizeof(SHA1digest))
    {
+      ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
       return LUTIL_PASSWD_ERR;
    }
 
    orig_pass = (unsigned char *) ber_memalloc(decode_len + 1);
    if (orig_pass == NULL )
    {
+      ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
       return LUTIL_PASSWD_ERR;
    }
 
@@ -305,6 +359,7 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    if (rc <= (int)(sizeof(SHA1digest)))
    {
       ber_memfree(orig_pass);
+      ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
       return LUTIL_PASSWD_ERR;
    }
 
@@ -319,21 +374,48 @@ static int chk_duo_ssha1 (const struct berval *sc, const struct berval *passwd, 
    ber_memfree(orig_pass);
    fprintf(stderr, "%s: ssha1_auth_result %d\n", TAG, hash_auth_result);
 
-   // only perform duo auth if result is LUTIL_PASSWD_OK
-   // TODO: The missing delay for an incorrect password guess may help an attacker enumerate valid passwords however
+   /*  only perform duo auth if result is LUTIL_PASSWD_OK
+    * TODO: The missing delay for an incorrect password guess may help an attacker enumerate valid passwords however
+    */
    if (hash_auth_result == LUTIL_PASSWD_OK)
    {
+      dc = ber_memalloc (sizeof (DuoConf));
+      if (!dc)
+      {
+         ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
+         return LUTIL_PASSWD_ERR;
+      }
+
+      if ( (read_duo_keys (dc)) != DUO_CFG_TOTAL_KEYS )
+      {
+         fprintf(stderr, "%s: error reading duo keys from %s\n", TAG, DUO_LOGIN_CFG);
+         ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
+         return LUTIL_PASSWD_ERR;
+      }
+
       duo_username = ber_memalloc (len_user + 1);
 
       if (!duo_username)
+      {
+         ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
          return LUTIL_PASSWD_ERR;
+      }
 
       AC_MEMCPY(duo_username, passwd->bv_val, len_user);
 
       fprintf(stderr, "%s: running duo_auth_user() for user %s\n", TAG, duo_username);
 
       /* if auth_result is good, set auth_result for LUTIL_PASSWD_OK */
-      auth_result = duo_auth_user (duo_username, AUTH_MODE_PUSH);
+      auth_result = duo_auth_user (duo_username, AUTH_MODE_PUSH, dc);
+
+      if (dc->api_host)
+         ber_memfree (dc->api_host);
+      if (dc->ikey)
+         ber_memfree (dc->ikey);
+      if (dc->skey)
+         ber_memfree (dc->skey);
+      if (dc)
+         ber_memfree (dc);
 
       fprintf(stderr, "%s: result is %d\n", TAG, auth_result);
       ber_memfree (duo_username);
@@ -356,6 +438,7 @@ static int chk_duo_sasl (const struct berval *sc, const struct berval *passwd, c
    int sasl_auth_result = LUTIL_PASSWD_ERR; /* default to password error */
    int auth_result      = LUTIL_PASSWD_ERR;
    void *ctx, *sconn = NULL;                // for sasl
+   DuoConf *dc;
 
    fprintf(stderr, "%s: starting chk_duo_sasl\n", TAG);
 
@@ -389,13 +472,37 @@ static int chk_duo_sasl (const struct berval *sc, const struct berval *passwd, c
    /* only perform duo auth if sasl_auth_result is LUTIL_PASSWD_OK. */
    if (sasl_auth_result == LUTIL_PASSWD_OK)
    {
+      dc = ber_memalloc (sizeof (DuoConf));
+      if (!dc)
+      {
+         ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
+         return LUTIL_PASSWD_ERR;
+      }
+
+      if ( (read_duo_keys (dc)) != DUO_CFG_TOTAL_KEYS )
+      {
+         fprintf(stderr, "%s: error reading duo keys from %s\n", TAG, DUO_LOGIN_CFG);
+         ldap_pvt_thread_mutex_unlock( &pw_duo_mutex );
+         return LUTIL_PASSWD_ERR;
+      }
+
+
       /* for SASL auth, passwd->bv_val contains 'username@realm'. Duo accepts username@whatever so should we just send as is ? */
       fprintf(stderr, "%s: running duo_auth_user() for user %s\n", TAG, passwd->bv_val);
 
       /* if auth_result is good, set auth_result for LUTIL_PASSWD_OK */
-      auth_result = duo_auth_user (passwd->bv_val, AUTH_MODE_PUSH);
+      auth_result = duo_auth_user (passwd->bv_val, AUTH_MODE_PUSH, dc);
 
       fprintf(stderr, "%s: result is %d\n", TAG, auth_result);
+
+      if (dc->api_host)
+         ber_memfree (dc->api_host);
+      if (dc->ikey)
+         ber_memfree (dc->ikey);
+      if (dc->skey)
+         ber_memfree (dc->skey);
+      if (dc)
+         ber_memfree (dc);
    }
    else
    {
@@ -421,7 +528,7 @@ int init_module( int argc, char *argv[] )
    fprintf(stderr, "%s: init_module - %s\n", TAG, MODULE_NAME);
 
    //DUO_CONF *duo_conf;
-   //duo_conf = read_duo_keys(DUO_CFG);
+   // int nkeys = read_duo_keys (DUO_CFG, dc);
 
    // might not need this? radius pw module uses it
    ldap_pvt_thread_mutex_init( &pw_duo_mutex );
