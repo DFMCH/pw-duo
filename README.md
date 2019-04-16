@@ -1,10 +1,10 @@
 # pw-duo
-pw-duo is an OpenLDAP password module implementing Duo Push with SASL passthrough authentication and/or SSHA password hashes
+pw-duo is a multi-factor OpenLDAP password module implementing [Duo's](https://duo.com) [libduo](https://github.com/duosecurity/libduo) Push feature with either SASL passthrough authentication or SSHA password hashes
 
 # Overview
 The module needs a configured OpenLDAP source branch to be built against. Once built, the module is copied to the OpenLDAP server (eg: under `/usr/lib/ldap`) and added to the slapd instance with an LDIF file. Once in place, a user's `userPassword` attribute is configured with a special "prefix" to tell `slapd` to run the pw-duo module for authentication instead of the built-in OpenLDAP methods. The pw-duo module will first attempt authentiation (depending on configuration) via SASL passthrough, or by comparing SSHA password hashes. If the previous auth method is succesful, the Duo push is attempted. If either method fails, authentication fails. By initiating the Duo push at the LDAP layer, any application requesting authentication via LDAP will initiate a Duo push without the need to modify any application source code.
 
-This is an early work in progress. My experience with C is limited to projects much smaller than the OpenLDAP code base. That said, there are things that could be improved on. For instance, it would make much more sense to call the 1FA functions already defined in OpenLDAP core and only handle the Duo 2FA from the module. When I tried this however, it created some warnings about redefined macros. It's most likely that I included the wrong header file. It wasn't obvious where the issue was so finally I opted to include the SASL and SSHA auth bits I needed directly into the pw-duo module itself. This resulted in a cleaner build and a good time to mention OpenLDAP is a registered trademark of the OpenLDAP Foundation and [where to find the OpenLDAP License](http://www.openldap.org/software/release/license.html)
+This is an early work in progress. My experience with C is limited to projects much smaller than the OpenLDAP code base. That said, there are things that could be improved on. For instance, it would make much more sense to call the 1FA functions already defined in OpenLDAP core and only handle the Duo 2FA from the module. When I tried this however, it created some warnings about redefined macros. It's most likely that I included the wrong header file. It wasn't obvious where the issue was so finally I opted to include the SASL and SSHA auth bits I needed directly into the pw-duo module itself. This resulted in a cleaner build and a good time to mention OpenLDAP is a registered trademark of the OpenLDAP Foundation and [where to find the OpenLDAP License](http://www.openldap.org/software/release/license.html) along with the [libduo License](https://github.com/duosecurity/libduo/blob/master/LICENSE) published by Duo Security.
 
 A few problems I wanted to address with pw-duo:
 
@@ -16,7 +16,7 @@ This module addresses the three points above however there are some caveats:
 
 - the inherent delay incorporated into the authentication process may not work for all applications.  I've tested it so far with `sudo` and a handful of in-house web apps but not a great sample size so far
 - some applications have a mixed user configuration - some in LDAP, some defined locally. An application level implementation would work best here
-- `slapd` allows about 10 seconds to accept the Duo push before [`deferring operation`](http://www.openldap.org/lists/openldap-software/200704/msg00094.html) occurrs which terminates authentication. I don't know yet if this is adjustable.
+- Using sudo, `slapd` allows about 10 seconds to accept the Duo push before [`deferring operation`](http://www.openldap.org/lists/openldap-software/200704/msg00094.html) occurrs which terminates authentication. I don't know yet if this is adjustable.
 
 The pw-duo module must be compiled against the source code headers of the version of slapd (OpenLDAP) you intend to be running the module on. There are a few headers which are generated during configure or compile time which need to be included in the module (portable.h is one).
 
@@ -120,16 +120,7 @@ $ ldconfig -v
 ...
 ```
 
-Your Duo keys are generated in your Duo admin portal and will need to be on the LDAP server. The simplest convention I found is to rsync `/etc/duo` from a system setup for something like `duo_unix` (using the `login_duo` application) to the LDAP server and then pull those into the environment.
-
-TODO: Need to expose the DUO keys to the slapd environment somehow. This is what I currently use for testing (run as root):
-```sh
-# export DUO_API_HOST=$(sudo egrep ^host /etc/duo/login_duo.conf  | awk '{print $3};')
-# export DUO_IKEY=$(sudo egrep ^ikey  /etc/duo/login_duo.conf  | awk '{print $3};')
-# export DUO_SKEY=$(sudo egrep ^skey  /etc/duo/login_duo.conf  | awk '{print $3};')
-
-# slapd -u openldap -d64 -h "ldap:/// ldaps:/// ldapi:///"
-```
+Your Duo keys (ikey, skey and api_host) are generated in your Duo admin portal and will need to be on the LDAP server. The simplest convention I found is to rsync `/etc/duo/login_duo.conf` from a system setup for something like `duo_unix` (using the `login_duo` application) to the LDAP server and then allow read access to that file by a group `slapd` belongs to. I wouldn't recommend setting world read on the file as a work around.
 
 I'm not exactly sure how best to remove an openldap module after it has been added. The question has been [brought up](https://www.openldap.org/lists/openldap-technical/201308/msg00162.html). It's probably best to make a [slapcat backup](https://help.ubuntu.com/lts/serverguide/openldap-server.html.en) before adding the module. If you want to remove the module, restore from the slapcat dump.
 
@@ -143,8 +134,13 @@ After adding the module, you can see if it's loading by running slapcat again. S
   chk_duo(): term_module - pw-duo
 ```
 
+If you start `slapd` by hand (from `root`) you can get some extra info about how things are going using the `-d` parameter to output debug info to your terminal. Currently, `pw-duo` prints way too much info. I Plan on paring that down.
+
+```sh
+# slapd -u openldap -d64 -h "ldap:/// ldaps:/// ldapi:///"
+```
 Lastly, in your LDAP DIT, find a user to test with and prefix the `userPassword` attribute as shown above. This will tell slapd to run the pw-duo password module for that user everytime authentication is performed. Authentication for that account will now use Duo push in addition to SASL or SSHA authentication.
 
-Also, be sure to check permissions on all the files copied over. root should own them all with restricted permissions on `/etc/duo` especially.
+Also, be sure to check permissions on all the module files copied over. root should own them all with restricted permissions on `/etc/duo` especially.
 
 
