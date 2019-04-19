@@ -57,7 +57,7 @@ $ ./configure --build=x86_64-linux-gnu --prefix=/usr --includedir=${prefix}/incl
 
 After configuring OpenLDAP, run `make depend` to build. This will not install the slapd build, but will create the neccesary header files which are needed to build pw-duo
 
-Next, pull in the Duo libduo C library and configure/build the library:
+Next, cd to `contrib/slapd-modules/passwd/` and pull in the Duo libduo C library and configure/build the library:
 ```
 $ git clone https://github.com/duosecurity/libduo.git
 ```
@@ -82,7 +82,7 @@ gcc -fPIC -Wall -D_FORTIFY_SOURCE=2 -fstack-protector -I. -I.   -DDUODIR=\"/usr/
 $ gcc -shared urlenc.o parson.o match.o https.o http_parser.o duo.o  -o libduo.so
 ```
 
-You should now have a `libduo.so` under the libduo directory. Next, cd to `contrib/slapd-modules/passwd` and clone the pw-duo repo in.
+You should now have a `libduo.so` under the libduo sub directory. Next, cd to `contrib/slapd-modules/passwd` and clone the pw-duo repo in.
 Copy the pw-duo and pw-duo-test source code and Makefile into the passwd directory (overwites the Makefile included with OpenLDAP so may want to back it up):
 ```
 $ git clone https://github.com/DFMCH/pw-duo.git
