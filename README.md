@@ -103,7 +103,6 @@ Steps:
 * copy the libduo shared library to the LDAP server
 * configure the dynamic linker (ld) for libduo
 * install the Duo keys on the LDAP server
-* export the Duo keys to the slapd environment
 * restart the LDAP server in debug mode to test
 * configure a user account for pw-duo
 
@@ -120,7 +119,7 @@ $ ldconfig -v
 ...
 ```
 
-Your Duo keys (ikey, skey and api_host) are generated in your Duo admin portal and will need to be on the LDAP server. The simplest convention I found is to rsync `/etc/duo/login_duo.conf` from a system setup for something like `duo_unix` (using the `login_duo` application) to the LDAP server and then allow read access to that file by a group `slapd` belongs to. I wouldn't recommend setting world read on the file as a work around.
+Your Duo keys (ikey, skey and api_host) are generated in your Duo admin portal and will need to be on the LDAP server. Following the Duo convention for key storage, grab a sample `login_duo.conf` from the [duo_unix repo](https://github.com/duosecurity/duo_unix/tree/master/login_duo)) to edit and install it to `/etc/duo/login_duo.conf`. Permissions on the file should be locked down to something like 0640 root:openldap or some other group `slapd` belongs to. I wouldn't recommend setting world read on the file as a work around. `/etc/duo` should be set with restricted access in mind as well (0750 root:openldap or similar)
 
 I'm not exactly sure how best to remove an openldap module after it has been added. The question has been [brought up](https://www.openldap.org/lists/openldap-technical/201308/msg00162.html). It's probably best to make a [slapcat backup](https://help.ubuntu.com/lts/serverguide/openldap-server.html.en) before adding the module. If you want to remove the module, restore from the slapcat dump.
 
